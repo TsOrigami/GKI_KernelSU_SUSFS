@@ -308,6 +308,30 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
         if hooks_patch.exists():
             self._run_cmd(f"cp {hooks_patch} . && patch -p1 -F 3 < 69_hide_stuff.patch", check=False)
 
+    def apply_execveat_compat_fix(self):
+        """兼容新版本 SukiSU 缺少 ksu_handle_post_execveat_sucompat 的情况。"""
+        exec_c = self.work_dir / "common/fs/exec.c"
+        sucompat_c = self.work_dir / "KernelSU/kernel/feature/sucompat.c"
+        if not exec_c.exists():
+            return
+
+        has_sucompat_post = False
+        if sucompat_c.exists():
+            with open(sucompat_c, "r") as f:
+                sucompat_content = f.read()
+            has_sucompat_post = "ksu_handle_post_execveat_sucompat(" in sucompat_content
+
+        with open(exec_c, "r") as f:
+            exec_content = f.read()
+
+        if "ksu_handle_post_execveat_sucompat(" not in exec_content or has_sucompat_post:
+            return
+
+        logger.info("检测到缺失 ksu_handle_post_execveat_sucompat，应用 execveat 兼容修复")
+        exec_content = exec_content.replace("ksu_handle_post_execveat_sucompat(", "ksu_handle_post_execveat(")
+        with open(exec_c, "w") as f:
+            f.write(exec_content)
+
     def apply_zram_patches(self):
         if not self.config.use_zram:
             return
@@ -741,6 +765,7 @@ CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
             self.add_bbg()
             self.apply_susfs_patches()
             self.apply_sukisu_patches()
+            self.apply_execveat_compat_fix()
             self.apply_zram_patches()
             self.apply_task_mmu_fixes()
             self.configure_kernel()
